@@ -2,10 +2,8 @@ const express = require('express');
 const cors = require('cors');
 const fs = require('fs');
 const path = require('path');
-const { promisify } = require('util');
-const { exec } = require('child_process');
+const { spawn } = require('child_process');
 const { EdgeTTS } = require('node-edge-tts');
-const execAsync = promisify(exec);
 
 const app = express();
 app.use(cors());
@@ -53,10 +51,7 @@ app.post('/genera-video', async (req, res) => {
       audioPath: `generated/${jobId}/audio.mp3`,
     }));
 
-    await execAsync(
-      `npx remotion render src/index.tsx GoodMondayVideo "${videoPath}" --props="${propsPath}"`,
-      { timeout: 300000, env: { ...process.env } }
-    );
+    await renderVideo(propsPath, videoPath);
 
     if (!fs.existsSync(videoPath)) throw new Error('Video non generato');
 
@@ -107,6 +102,76 @@ async function generateAudio(testo, outputPath) {
   if (!fs.existsSync(outputPath)) {
     throw new Error('Audio non generato');
   }
+}
+
+async function renderVideo(propsPath, videoPath) {
+  const remotionBin = path.join(__dirname, 'node_modules', '.bin', 'remotion');
+  const args = [
+    'render',
+    'src/index.tsx',
+    'GoodMondayVideo',
+    videoPath,
+    `--props=${propsPath}`,
+    '--concurrency=1',
+  ];
+
+  await runCommand(remotionBin, args, 300000);
+}
+
+function runCommand(command, args, timeoutMs) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(command, args, {
+      cwd: __dirname,
+      env: { ...process.env, CI: '1' },
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+
+    let stdout = '';
+    let stderr = '';
+    let timedOut = false;
+    const maxLogLength = 12000;
+
+    const appendLog = (current, chunk) => {
+      const next = current + chunk.toString();
+      return next.length > maxLogLength ? next.slice(-maxLogLength) : next;
+    };
+
+    child.stdout.on('data', (chunk) => {
+      stdout = appendLog(stdout, chunk);
+    });
+
+    child.stderr.on('data', (chunk) => {
+      stderr = appendLog(stderr, chunk);
+    });
+
+    const timeout = setTimeout(() => {
+      timedOut = true;
+      child.kill('SIGTERM');
+    }, timeoutMs);
+
+    child.on('error', (err) => {
+      clearTimeout(timeout);
+      reject(err);
+    });
+
+    child.on('close', (code, signal) => {
+      clearTimeout(timeout);
+
+      if (timedOut) {
+        reject(new Error(`Render video scaduto dopo ${timeoutMs}ms`));
+        return;
+      }
+
+      if (code === 0) {
+        resolve();
+        return;
+      }
+
+      reject(new Error(
+        `Remotion fallito con codice ${code ?? 'null'} e segnale ${signal ?? 'none'}\nSTDOUT:\n${stdout}\nSTDERR:\n${stderr}`
+      ));
+    });
+  });
 }
 
 const PORT = process.env.PORT || 3000;
