@@ -19,6 +19,8 @@ const JOB_RETENTION_MS = 30 * 60 * 1000;
 const INTRO_SECONDS = 15;
 const OUTRO_SECONDS = 30;
 const MAX_SECONDS = 180;
+const RENDER_SCALE = Number(process.env.REMOTION_SCALE || '0.6666667');
+const OUTPUT_DIMENSIONS = `${Math.round(1080 * RENDER_SCALE)}x${Math.round(1920 * RENDER_SCALE)}`;
 const jobs = new Map();
 
 // Health check
@@ -66,7 +68,7 @@ app.post('/genera-video', (req, res) => {
     status_url: statusUrl,
     video_url: videoUrl,
     formato: 'mp4',
-    dimensioni: '1080x1920',
+    dimensioni: OUTPUT_DIMENSIONS,
     durata_secondi: durationSeconds,
   });
 });
@@ -89,7 +91,7 @@ app.get('/video-status/:jobId', (req, res) => {
     video_url: job.status === 'completed' ? job.videoUrl : null,
     errore: job.error || null,
     formato: 'mp4',
-    dimensioni: '1080x1920',
+    dimensioni: OUTPUT_DIMENSIONS,
     durata_secondi: job.durationSeconds || null,
   });
 });
@@ -232,6 +234,7 @@ async function renderVideo(inputProps, videoPath) {
     inputProps,
     concurrency: 1,
     overwrite: true,
+    scale: RENDER_SCALE,
     logLevel: 'error',
     onProgress: () => {},
   });
