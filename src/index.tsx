@@ -1,7 +1,7 @@
 import { Composition, registerRoot } from 'remotion';
 import { GoodMondayVideo } from './Video';
 
-const FPS = 18;
+const FPS = 24;
 const INTRO_SECONDS = 15;
 const OUTRO_SECONDS = 30;
 const MAX_SECONDS = 180;
