@@ -113,6 +113,7 @@ async function renderVideo(propsPath, videoPath) {
     videoPath,
     `--props=${propsPath}`,
     '--concurrency=1',
+    '--log=error',
   ];
 
   await runCommand(remotionBin, args, 300000);
@@ -123,10 +124,9 @@ function runCommand(command, args, timeoutMs) {
     const child = spawn(command, args, {
       cwd: __dirname,
       env: { ...process.env, CI: '1' },
-      stdio: ['ignore', 'pipe', 'pipe'],
+      stdio: ['ignore', 'ignore', 'pipe'],
     });
 
-    let stdout = '';
     let stderr = '';
     let timedOut = false;
     const maxLogLength = 12000;
@@ -135,10 +135,6 @@ function runCommand(command, args, timeoutMs) {
       const next = current + chunk.toString();
       return next.length > maxLogLength ? next.slice(-maxLogLength) : next;
     };
-
-    child.stdout.on('data', (chunk) => {
-      stdout = appendLog(stdout, chunk);
-    });
 
     child.stderr.on('data', (chunk) => {
       stderr = appendLog(stderr, chunk);
@@ -168,7 +164,7 @@ function runCommand(command, args, timeoutMs) {
       }
 
       reject(new Error(
-        `Remotion fallito con codice ${code ?? 'null'} e segnale ${signal ?? 'none'}\nSTDOUT:\n${stdout}\nSTDERR:\n${stderr}`
+        `Remotion fallito con codice ${code ?? 'null'} e segnale ${signal ?? 'none'}\nSTDERR:\n${stderr}`
       ));
     });
   });
