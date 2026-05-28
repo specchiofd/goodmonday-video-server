@@ -16,6 +16,9 @@ if (!fs.existsSync(OUTPUT_DIR)) fs.mkdirSync(OUTPUT_DIR, { recursive: true });
 const PUBLIC_GENERATED_DIR = path.join(__dirname, 'public', 'generated');
 if (!fs.existsSync(PUBLIC_GENERATED_DIR)) fs.mkdirSync(PUBLIC_GENERATED_DIR, { recursive: true });
 const JOB_RETENTION_MS = 30 * 60 * 1000;
+const INTRO_SECONDS = 15;
+const OUTRO_SECONDS = 30;
+const MAX_SECONDS = 180;
 const jobs = new Map();
 
 // Health check
@@ -36,6 +39,7 @@ app.post('/genera-video', (req, res) => {
   }
 
   const jobId = `goodmonday_${Date.now()}`;
+  const durationSeconds = getVideoDurationSeconds(script);
   const baseUrl = getBaseUrl(req);
   const statusUrl = `${baseUrl}/video-status/${jobId}`;
   const videoUrl = `${baseUrl}/video/${jobId}.mp4`;
@@ -46,10 +50,11 @@ app.post('/genera-video', (req, res) => {
     jobId,
     statusUrl,
     videoUrl,
+    durationSeconds,
   });
 
   setImmediate(() => {
-    processVideoJob({ jobId, script, caption_finale, videoUrl }).catch((err) => {
+    processVideoJob({ jobId, script, caption_finale, videoUrl, durationSeconds }).catch((err) => {
       markJobFailed(jobId, err);
     });
   });
@@ -62,7 +67,7 @@ app.post('/genera-video', (req, res) => {
     video_url: videoUrl,
     formato: 'mp4',
     dimensioni: '1080x1920',
-    durata_secondi: 180,
+    durata_secondi: durationSeconds,
   });
 });
 
@@ -85,7 +90,7 @@ app.get('/video-status/:jobId', (req, res) => {
     errore: job.error || null,
     formato: 'mp4',
     dimensioni: '1080x1920',
-    durata_secondi: 180,
+    durata_secondi: job.durationSeconds || null,
   });
 });
 
@@ -99,7 +104,7 @@ app.get('/video/:jobId.mp4', (req, res) => {
   res.sendFile(job.videoPath);
 });
 
-async function processVideoJob({ jobId, script, caption_finale, videoUrl }) {
+async function processVideoJob({ jobId, script, caption_finale, videoUrl, durationSeconds }) {
   const jobDir = path.join(OUTPUT_DIR, jobId);
   const publicJobDir = path.join(PUBLIC_GENERATED_DIR, jobId);
   fs.mkdirSync(jobDir, { recursive: true });
@@ -135,6 +140,7 @@ async function processVideoJob({ jobId, script, caption_finale, videoUrl }) {
       jobId,
       videoPath,
       videoUrl,
+      durationSeconds,
     });
 
     setTimeout(() => {
@@ -157,6 +163,7 @@ function markJobFailed(jobId, err, jobDir = null, publicJobDir = null) {
     createdAt: Date.now(),
     jobId,
     error: err.message,
+    durationSeconds: null,
   });
 
   if (jobDir) {
@@ -172,6 +179,12 @@ function markJobFailed(jobId, err, jobDir = null, publicJobDir = null) {
 
 function getBaseUrl(req) {
   return process.env.PUBLIC_BASE_URL || `${req.protocol}://${req.get('host')}`;
+}
+
+function getVideoDurationSeconds(script) {
+  const newsCount = Math.max(1, script.notizie?.length || 1);
+  const newsSeconds = Math.min(30, Math.floor((MAX_SECONDS - INTRO_SECONDS - OUTRO_SECONDS) / newsCount));
+  return INTRO_SECONDS + newsSeconds * newsCount + OUTRO_SECONDS;
 }
 
 function buildTestoTTS(script) {

@@ -38,6 +38,14 @@ const COLORS = {
   grigio_scuro: '#1a1a3e',
 };
 
+const INTRO_SECONDS = 15;
+const OUTRO_SECONDS = 30;
+const MAX_SECONDS = 180;
+
+const getNewsDurationSeconds = (newsCount: number) => {
+  return Math.min(30, Math.floor((MAX_SECONDS - INTRO_SECONDS - OUTRO_SECONDS) / Math.max(1, newsCount)));
+};
+
 // Animazione fade + slide dal basso
 const FadeSlideIn: React.FC<{
   children: React.ReactNode;
@@ -409,10 +417,10 @@ const SchermaOutro: React.FC<{ testo: string }> = ({ testo }) => (
 
 // Componente principale
 export const GoodMondayVideo: React.FC<Props> = ({ script, audioPath }) => {
-  const FPS = 30;
-  const DURATA_INTRO = 15 * FPS;
-  const DURATA_NOTIZIA = 30 * FPS;
-  const DURATA_OUTRO = 30 * FPS;
+  const { fps } = useVideoConfig();
+  const DURATA_INTRO = INTRO_SECONDS * fps;
+  const DURATA_NOTIZIA = getNewsDurationSeconds(script.notizie.length) * fps;
+  const DURATA_OUTRO = OUTRO_SECONDS * fps;
 
   return (
     <AbsoluteFill>
