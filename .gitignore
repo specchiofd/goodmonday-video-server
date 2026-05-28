@@ -1,5 +1,6 @@
 node_modules/
 output/
+public/generated/
 dist/
 .env
 *.mp4

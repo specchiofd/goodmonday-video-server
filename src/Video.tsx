@@ -3,6 +3,7 @@ import {
   AbsoluteFill,
   Audio,
   Sequence,
+  staticFile,
   useCurrentFrame,
   useVideoConfig,
   interpolate,
@@ -416,7 +417,7 @@ export const GoodMondayVideo: React.FC<Props> = ({ script, audioPath }) => {
   return (
     <AbsoluteFill>
       {/* Audio voce */}
-      {audioPath && <Audio src={audioPath} />}
+      {audioPath && <Audio src={staticFile(audioPath)} />}
 
       {/* Intro */}
       <Sequence from={0} durationInFrames={DURATA_INTRO}>

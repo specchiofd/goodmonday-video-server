@@ -4,6 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const { promisify } = require('util');
 const { exec } = require('child_process');
+const { EdgeTTS } = require('node-edge-tts');
 const execAsync = promisify(exec);
 
 const app = express();
@@ -12,6 +13,8 @@ app.use(express.json({ limit: '10mb' }));
 
 const OUTPUT_DIR = path.join(__dirname, 'output');
 if (!fs.existsSync(OUTPUT_DIR)) fs.mkdirSync(OUTPUT_DIR, { recursive: true });
+const PUBLIC_GENERATED_DIR = path.join(__dirname, 'public', 'generated');
+if (!fs.existsSync(PUBLIC_GENERATED_DIR)) fs.mkdirSync(PUBLIC_GENERATED_DIR, { recursive: true });
 
 // Health check
 app.get('/', (req, res) => {
@@ -28,7 +31,9 @@ app.post('/genera-video', async (req, res) => {
 
   const jobId = `goodmonday_${Date.now()}`;
   const jobDir = path.join(OUTPUT_DIR, jobId);
+  const publicJobDir = path.join(PUBLIC_GENERATED_DIR, jobId);
   fs.mkdirSync(jobDir, { recursive: true });
+  fs.mkdirSync(publicJobDir, { recursive: true });
 
   try {
     console.log(`[${jobId}] Avvio generazione video...`);
@@ -36,17 +41,20 @@ app.post('/genera-video', async (req, res) => {
     // 1. Genera audio con node-edge-tts
     const testoCompleto = buildTestoTTS(script);
     console.log(`[${jobId}] Generazione audio Edge TTS...`);
-    const audioPath = path.join(jobDir, 'audio.mp3');
+    const audioPath = path.join(publicJobDir, 'audio.mp3');
     await generateAudio(testoCompleto, audioPath);
 
     // 2. Genera video con Remotion
     console.log(`[${jobId}] Rendering video Remotion...`);
     const videoPath = path.join(jobDir, 'video.mp4');
     const propsPath = path.join(jobDir, 'props.json');
-    fs.writeFileSync(propsPath, JSON.stringify({ script, audioPath }));
+    fs.writeFileSync(propsPath, JSON.stringify({
+      script,
+      audioPath: `generated/${jobId}/audio.mp3`,
+    }));
 
     await execAsync(
-      `npx remotion render src/index.ts GoodMondayVideo "${videoPath}" --props="${propsPath}"`,
+      `npx remotion render src/index.tsx GoodMondayVideo "${videoPath}" --props="${propsPath}"`,
       { timeout: 300000, env: { ...process.env } }
     );
 
@@ -57,6 +65,7 @@ app.post('/genera-video', async (req, res) => {
 
     setTimeout(() => {
       try { fs.rmSync(jobDir, { recursive: true }); } catch (e) {}
+      try { fs.rmSync(publicJobDir, { recursive: true }); } catch (e) {}
     }, 60000);
 
     res.json({
@@ -71,6 +80,7 @@ app.post('/genera-video', async (req, res) => {
   } catch (err) {
     console.error(`[${jobId}] Errore:`, err.message);
     try { fs.rmSync(jobDir, { recursive: true }); } catch (e) {}
+    try { fs.rmSync(publicJobDir, { recursive: true }); } catch (e) {}
     res.status(500).json({ errore: err.message });
   }
 });
@@ -85,13 +95,17 @@ function buildTestoTTS(script) {
 }
 
 async function generateAudio(testo, outputPath) {
-  // node-edge-tts si usa via CLI
-  const { stdout, stderr } = await execAsync(
-    `npx edge-tts --voice it-IT-ElsaNeural --text "${testo.replace(/"/g, "'")}" --write-media "${outputPath}"`,
-    { timeout: 60000 }
-  );
+  const tts = new EdgeTTS({
+    voice: 'it-IT-ElsaNeural',
+    lang: 'it-IT',
+    outputFormat: 'audio-24khz-96kbitrate-mono-mp3',
+    timeout: 60000,
+  });
+
+  await tts.ttsPromise(testo, outputPath);
+
   if (!fs.existsSync(outputPath)) {
-    throw new Error('Audio non generato: ' + stderr);
+    throw new Error('Audio non generato');
   }
 }
 
