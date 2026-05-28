@@ -19,7 +19,8 @@ const JOB_RETENTION_MS = 30 * 60 * 1000;
 const INTRO_SECONDS = 15;
 const OUTRO_SECONDS = 30;
 const MAX_SECONDS = 180;
-const RENDER_SCALE = Number(process.env.REMOTION_SCALE || '0.6666667');
+const DEFAULT_RENDER_SCALE = 2 / 3;
+const RENDER_SCALE = process.env.REMOTION_SCALE ? Number(process.env.REMOTION_SCALE) : DEFAULT_RENDER_SCALE;
 const OUTPUT_DIMENSIONS = `${Math.round(1080 * RENDER_SCALE)}x${Math.round(1920 * RENDER_SCALE)}`;
 const jobs = new Map();
 
