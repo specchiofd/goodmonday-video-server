@@ -2,7 +2,8 @@ const express = require('express');
 const cors = require('cors');
 const fs = require('fs');
 const path = require('path');
-const { spawn } = require('child_process');
+const { bundle } = require('@remotion/bundler');
+const { renderMedia, selectComposition } = require('@remotion/renderer');
 const { EdgeTTS } = require('node-edge-tts');
 
 const app = express();
@@ -46,12 +47,13 @@ app.post('/genera-video', async (req, res) => {
     console.log(`[${jobId}] Rendering video Remotion...`);
     const videoPath = path.join(jobDir, 'video.mp4');
     const propsPath = path.join(jobDir, 'props.json');
-    fs.writeFileSync(propsPath, JSON.stringify({
+    const inputProps = {
       script,
       audioPath: `generated/${jobId}/audio.mp3`,
-    }));
+    };
+    fs.writeFileSync(propsPath, JSON.stringify(inputProps));
 
-    await renderVideo(propsPath, videoPath);
+    await renderVideo(inputProps, videoPath);
 
     if (!fs.existsSync(videoPath)) throw new Error('Video non generato');
 
@@ -104,69 +106,29 @@ async function generateAudio(testo, outputPath) {
   }
 }
 
-async function renderVideo(propsPath, videoPath) {
-  const remotionBin = path.join(__dirname, 'node_modules', '.bin', 'remotion');
-  const args = [
-    'render',
-    'src/index.tsx',
-    'GoodMondayVideo',
-    videoPath,
-    `--props=${propsPath}`,
-    '--concurrency=1',
-    '--log=error',
-  ];
+async function renderVideo(inputProps, videoPath) {
+  const serveUrl = await bundle({
+    entryPoint: path.join(__dirname, 'src', 'index.tsx'),
+    onProgress: () => {},
+  });
 
-  await runCommand(remotionBin, args, 300000);
-}
+  const composition = await selectComposition({
+    serveUrl,
+    id: 'GoodMondayVideo',
+    inputProps,
+    logLevel: 'error',
+  });
 
-function runCommand(command, args, timeoutMs) {
-  return new Promise((resolve, reject) => {
-    const child = spawn(command, args, {
-      cwd: __dirname,
-      env: { ...process.env, CI: '1' },
-      stdio: ['ignore', 'ignore', 'pipe'],
-    });
-
-    let stderr = '';
-    let timedOut = false;
-    const maxLogLength = 12000;
-
-    const appendLog = (current, chunk) => {
-      const next = current + chunk.toString();
-      return next.length > maxLogLength ? next.slice(-maxLogLength) : next;
-    };
-
-    child.stderr.on('data', (chunk) => {
-      stderr = appendLog(stderr, chunk);
-    });
-
-    const timeout = setTimeout(() => {
-      timedOut = true;
-      child.kill('SIGTERM');
-    }, timeoutMs);
-
-    child.on('error', (err) => {
-      clearTimeout(timeout);
-      reject(err);
-    });
-
-    child.on('close', (code, signal) => {
-      clearTimeout(timeout);
-
-      if (timedOut) {
-        reject(new Error(`Render video scaduto dopo ${timeoutMs}ms`));
-        return;
-      }
-
-      if (code === 0) {
-        resolve();
-        return;
-      }
-
-      reject(new Error(
-        `Remotion fallito con codice ${code ?? 'null'} e segnale ${signal ?? 'none'}\nSTDERR:\n${stderr}`
-      ));
-    });
+  await renderMedia({
+    composition,
+    serveUrl,
+    codec: 'h264',
+    outputLocation: videoPath,
+    inputProps,
+    concurrency: 1,
+    overwrite: true,
+    logLevel: 'error',
+    onProgress: () => {},
   });
 }
 
