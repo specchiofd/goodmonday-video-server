@@ -7,6 +7,7 @@ const { renderMedia, selectComposition } = require('@remotion/renderer');
 const { EdgeTTS } = require('node-edge-tts');
 
 const app = express();
+app.set('trust proxy', true);
 app.use(cors());
 app.use(express.json({ limit: '10mb' }));
 
@@ -14,6 +15,8 @@ const OUTPUT_DIR = path.join(__dirname, 'output');
 if (!fs.existsSync(OUTPUT_DIR)) fs.mkdirSync(OUTPUT_DIR, { recursive: true });
 const PUBLIC_GENERATED_DIR = path.join(__dirname, 'public', 'generated');
 if (!fs.existsSync(PUBLIC_GENERATED_DIR)) fs.mkdirSync(PUBLIC_GENERATED_DIR, { recursive: true });
+const JOB_RETENTION_MS = 30 * 60 * 1000;
+const jobs = new Map();
 
 // Health check
 app.get('/', (req, res) => {
@@ -21,7 +24,7 @@ app.get('/', (req, res) => {
 });
 
 // Endpoint principale
-app.post('/genera-video', async (req, res) => {
+app.post('/genera-video', (req, res) => {
   const { script, caption_finale } = req.body;
 
   if (!script || !script.notizie) {
@@ -29,6 +32,70 @@ app.post('/genera-video', async (req, res) => {
   }
 
   const jobId = `goodmonday_${Date.now()}`;
+  const baseUrl = getBaseUrl(req);
+  const statusUrl = `${baseUrl}/video-status/${jobId}`;
+  const videoUrl = `${baseUrl}/video/${jobId}.mp4`;
+
+  jobs.set(jobId, {
+    status: 'processing',
+    createdAt: Date.now(),
+    jobId,
+    statusUrl,
+    videoUrl,
+  });
+
+  setImmediate(() => {
+    processVideoJob({ jobId, script, caption_finale, videoUrl }).catch((err) => {
+      markJobFailed(jobId, err);
+    });
+  });
+
+  res.status(202).json({
+    successo: true,
+    status: 'processing',
+    jobId,
+    status_url: statusUrl,
+    video_url: videoUrl,
+    formato: 'mp4',
+    dimensioni: '1080x1920',
+    durata_secondi: 180,
+  });
+});
+
+app.get('/video-status/:jobId', (req, res) => {
+  const job = jobs.get(req.params.jobId);
+
+  if (!job) {
+    return res.status(404).json({
+      successo: false,
+      status: 'not_found',
+      errore: 'Job non trovato o scaduto',
+    });
+  }
+
+  res.json({
+    successo: job.status === 'completed',
+    status: job.status,
+    jobId: job.jobId,
+    video_url: job.status === 'completed' ? job.videoUrl : null,
+    errore: job.error || null,
+    formato: 'mp4',
+    dimensioni: '1080x1920',
+    durata_secondi: 180,
+  });
+});
+
+app.get('/video/:jobId.mp4', (req, res) => {
+  const job = jobs.get(req.params.jobId);
+
+  if (!job || job.status !== 'completed' || !job.videoPath || !fs.existsSync(job.videoPath)) {
+    return res.status(404).json({ errore: 'Video non disponibile' });
+  }
+
+  res.sendFile(job.videoPath);
+});
+
+async function processVideoJob({ jobId, script, caption_finale, videoUrl }) {
   const jobDir = path.join(OUTPUT_DIR, jobId);
   const publicJobDir = path.join(PUBLIC_GENERATED_DIR, jobId);
   fs.mkdirSync(jobDir, { recursive: true });
@@ -36,6 +103,7 @@ app.post('/genera-video', async (req, res) => {
 
   try {
     console.log(`[${jobId}] Avvio generazione video...`);
+    fs.writeFileSync(path.join(jobDir, 'caption.txt'), caption_finale || '');
 
     // 1. Genera audio con node-edge-tts
     const testoCompleto = buildTestoTTS(script);
@@ -57,30 +125,50 @@ app.post('/genera-video', async (req, res) => {
 
     if (!fs.existsSync(videoPath)) throw new Error('Video non generato');
 
-    // 3. Restituisce video in base64
-    const videoBase64 = fs.readFileSync(videoPath).toString('base64');
+    jobs.set(jobId, {
+      status: 'completed',
+      createdAt: Date.now(),
+      jobId,
+      videoPath,
+      videoUrl,
+    });
 
     setTimeout(() => {
       try { fs.rmSync(jobDir, { recursive: true }); } catch (e) {}
       try { fs.rmSync(publicJobDir, { recursive: true }); } catch (e) {}
-    }, 60000);
+      jobs.delete(jobId);
+    }, JOB_RETENTION_MS);
 
-    res.json({
-      successo: true,
-      jobId,
-      video_base64: videoBase64,
-      formato: 'mp4',
-      dimensioni: '1080x1920',
-      durata_secondi: 180
-    });
+    console.log(`[${jobId}] Video pronto: ${videoUrl}`);
 
   } catch (err) {
-    console.error(`[${jobId}] Errore:`, err.message);
-    try { fs.rmSync(jobDir, { recursive: true }); } catch (e) {}
-    try { fs.rmSync(publicJobDir, { recursive: true }); } catch (e) {}
-    res.status(500).json({ errore: err.message });
+    markJobFailed(jobId, err, jobDir, publicJobDir);
   }
-});
+}
+
+function markJobFailed(jobId, err, jobDir = null, publicJobDir = null) {
+  console.error(`[${jobId}] Errore:`, err.message);
+  jobs.set(jobId, {
+    status: 'failed',
+    createdAt: Date.now(),
+    jobId,
+    error: err.message,
+  });
+
+  if (jobDir) {
+    try { fs.rmSync(jobDir, { recursive: true }); } catch (e) {}
+  }
+
+  if (publicJobDir) {
+    try { fs.rmSync(publicJobDir, { recursive: true }); } catch (e) {}
+  }
+
+  setTimeout(() => jobs.delete(jobId), JOB_RETENTION_MS);
+}
+
+function getBaseUrl(req) {
+  return process.env.PUBLIC_BASE_URL || `${req.protocol}://${req.get('host')}`;
+}
 
 function buildTestoTTS(script) {
   let testo = script.intro + '. ';
