@@ -20,7 +20,11 @@ const jobs = new Map();
 
 // Health check
 app.get('/', (req, res) => {
-  res.json({ status: 'GoodMonday Video Server attivo', version: '1.0.0' });
+  res.json({
+    status: 'GoodMonday Video Server attivo',
+    version: '1.1.0',
+    mode: 'async-jobs',
+  });
 });
 
 // Endpoint principale
