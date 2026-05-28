@@ -1,0 +1,19 @@
+{
+  "name": "goodmonday-video-server",
+  "version": "1.0.0",
+  "description": "Server per generazione video GoodMonday con Remotion e Edge TTS",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "install-browsers": "npx playwright install chromium"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "edge-tts": "^1.0.5",
+    "@remotion/renderer": "^4.0.135",
+    "remotion": "^4.0.135",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "cors": "^2.8.5"
+  }
+}
